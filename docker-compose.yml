@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  hh-dashboard:
+  jobogram:
     build: .
-    container_name: hh-dashboard
+    container_name: jobogram
     restart: unless-stopped
     ports:
       - "8501:8501"

@@ -5,8 +5,8 @@ ssh root@your-server-ip
 # Должны быть A записи для jobogram.ru и www.jobogram.ru, указывающие на IP вашего VPS
 
 # 3. Клонируйте проект
-git clone https://github.com/your-username/hh-dashboard.git
-cd hh-dashboard
+git clone https://github.com/your-username/jobogram.git
+cd jobogram
 
 # 4. Создайте .env файл с вашим API ключом
 nano .env
@@ -20,10 +20,10 @@ sudo apt update
 sudo apt install -y nginx certbot python3-certbot-nginx
 
 # 6. Скопируйте конфиг Nginx
-sudo cp nginx.conf /etc/nginx/sites-available/hh-dashboard
+sudo cp nginx.conf /etc/nginx/sites-available/jobogram
 
 # 7. Активируйте сайт
-sudo ln -s /etc/nginx/sites-available/hh-dashboard /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/jobogram /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default  # Удаляем дефолтный сайт
 
 # 8. Проверьте конфигурацию Nginx

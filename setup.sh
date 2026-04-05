@@ -63,7 +63,7 @@ mkdir -p logs data
 
 # Configure Nginx
 echo -e "${YELLOW}🔧 Configuring Nginx for ${DOMAIN}...${NC}"
-cat > /etc/nginx/sites-available/hh-dashboard << EOF
+cat > /etc/nginx/sites-available/jobogram << EOF
 server {
     listen 80;
     server_name ${DOMAIN} www.${DOMAIN};
@@ -110,7 +110,7 @@ server {
 EOF
 
 # Enable site
-ln -sf /etc/nginx/sites-available/hh-dashboard /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/jobogram /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 
@@ -130,7 +130,7 @@ docker-compose up -d
 
 # Check if container is running
 sleep 5
-if docker ps | grep -q hh-dashboard; then
+if docker ps | grep -q jobogram; then
     echo -e "${GREEN}✅ Container is running!${NC}"
 else
     echo -e "${RED}❌ Container failed to start. Check logs: docker-compose logs${NC}"
