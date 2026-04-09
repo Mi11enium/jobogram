@@ -1,106 +1,91 @@
 #!/bin/bash
+set -euo pipefail
 
-# Цвета для вывода
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-DOMAIN="jobogram.ru"
+DOMAIN="${DOMAIN:-jobogram.ru}"
+EMAIL="${EMAIL:-admin@jobogram.ru}"
+WWW_DOMAIN="www.${DOMAIN}"
 
-echo -e "${GREEN}🚀 Starting HH Dashboard deployment for ${DOMAIN}...${NC}"
+echo -e "${GREEN}Starting Jobogram deployment for ${DOMAIN}${NC}"
 
-# Проверка прав root
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}Please run as root (use sudo)${NC}"
-    exit 1
+if [ "${EUID}" -ne 0 ]; then
+  echo -e "${RED}Run this script as root (sudo).${NC}"
+  exit 1
 fi
 
-# Update system
-echo -e "${YELLOW}📦 Updating system...${NC}"
-apt-get update && apt-get upgrade -y
-
-# Install Docker if not installed
-if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}📦 Installing Docker...${NC}"
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    usermod -aG docker $SUDO_USER
+if [ ! -f "docker-compose.yml" ] || [ ! -f "app.py" ]; then
+  echo -e "${RED}Run setup.sh from the project root directory.${NC}"
+  exit 1
 fi
 
-# Install Docker Compose if not installed
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${YELLOW}📦 Installing Docker Compose...${NC}"
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+echo -e "${YELLOW}Installing required packages...${NC}"
+apt-get update
+apt-get install -y ca-certificates curl gnupg lsb-release nginx certbot python3-certbot-nginx
+
+if ! command_exists docker; then
+  echo -e "${YELLOW}Installing Docker...${NC}"
+  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  sh /tmp/get-docker.sh
 fi
 
-# Install Nginx if not installed
-if ! command -v nginx &> /dev/null; then
-    echo -e "${YELLOW}📦 Installing Nginx...${NC}"
-    apt-get install -y nginx
+if ! docker compose version >/dev/null 2>&1; then
+  echo -e "${YELLOW}Installing Docker Compose plugin...${NC}"
+  apt-get install -y docker-compose-plugin
 fi
 
-# Install Certbot for SSL
-echo -e "${YELLOW}📦 Installing Certbot...${NC}"
-apt-get install -y certbot python3-certbot-nginx
-
-# Create .env file if not exists
-if [ ! -f .env ]; then
-    echo -e "${YELLOW}📝 Creating .env file...${NC}"
-    cat > .env << EOF
-OPENROUTER_API_KEY=your_api_key_here
+if [ ! -f ".env" ]; then
+  cat > .env <<EOF
+OPENROUTER_API_KEY=
 APP_URL=https://${DOMAIN}
 DEBUG=False
 EOF
-    echo -e "${RED}⚠️ Please edit .env file and add your OpenRouter API key!${NC}"
-    echo -e "${YELLOW}Run: nano .env${NC}"
-    exit 1
+  echo -e "${RED}Created .env template. Fill OPENROUTER_API_KEY and run setup again.${NC}"
+  exit 1
 fi
 
-# Create directories
+if ! rg -n "^OPENROUTER_API_KEY=" ".env" >/dev/null 2>&1; then
+  echo -e "${RED}.env is missing OPENROUTER_API_KEY line.${NC}"
+  exit 1
+fi
+
+if rg -n "^OPENROUTER_API_KEY=\\s*$" ".env" >/dev/null 2>&1; then
+  echo -e "${RED}OPENROUTER_API_KEY is empty in .env.${NC}"
+  exit 1
+fi
+
 mkdir -p logs data
 
-# Configure Nginx
-echo -e "${YELLOW}🔧 Configuring Nginx for ${DOMAIN}...${NC}"
-cat > /etc/nginx/sites-available/jobogram << EOF
+echo -e "${YELLOW}Building and starting containers...${NC}"
+docker compose down --remove-orphans || true
+docker compose up -d --build
+
+echo -e "${YELLOW}Configuring Nginx...${NC}"
+cat > /etc/nginx/sites-available/jobogram <<EOF
 server {
     listen 80;
-    server_name ${DOMAIN} www.${DOMAIN};
-    return 301 https://\$server_name\$request_uri;
-}
+    server_name ${DOMAIN} ${WWW_DOMAIN};
 
-server {
-    listen 443 ssl http2;
-    server_name ${DOMAIN} www.${DOMAIN};
-
-    # SSL certificates (will be added by certbot)
-    # ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    
-    # Proxy to Streamlit
     location / {
-        proxy_pass http://localhost:8501;
+        proxy_pass http://127.0.0.1:8501;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
         proxy_buffering off;
     }
-    
+
     location /health {
         access_log off;
         return 200 "healthy\n";
@@ -109,48 +94,45 @@ server {
 }
 EOF
 
-# Enable site
-ln -sf /etc/nginx/sites-available/jobogram /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/jobogram /etc/nginx/sites-enabled/jobogram
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
-
-# Restart Nginx
 systemctl restart nginx
 
-# Obtain SSL certificate
-echo -e "${YELLOW}🔒 Obtaining SSL certificate from Let's Encrypt...${NC}"
-certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} --non-interactive --agree-tos --email admin@${DOMAIN} --redirect
+echo -e "${YELLOW}Requesting SSL certificate from Let's Encrypt...${NC}"
+certbot --nginx \
+  -d "${DOMAIN}" \
+  -d "${WWW_DOMAIN}" \
+  --non-interactive \
+  --agree-tos \
+  --email "${EMAIL}" \
+  --redirect
 
-# Build and run Docker container
-echo -e "${GREEN}🐳 Building Docker image...${NC}"
-docker-compose build
+nginx -t
+systemctl reload nginx
 
-echo -e "${GREEN}🚀 Starting container...${NC}"
-docker-compose up -d
-
-# Check if container is running
+echo -e "${YELLOW}Waiting for healthcheck...${NC}"
 sleep 5
-if docker ps | grep -q jobogram; then
-    echo -e "${GREEN}✅ Container is running!${NC}"
+
+if curl -fsS "http://127.0.0.1:8501/_stcore/health" >/dev/null; then
+  echo -e "${GREEN}Container healthcheck passed.${NC}"
 else
-    echo -e "${RED}❌ Container failed to start. Check logs: docker-compose logs${NC}"
-    exit 1
+  echo -e "${RED}Container healthcheck failed. Check logs: docker compose logs -f${NC}"
+  exit 1
 fi
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}✅ Deployment complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}📊 Dashboard available at: https://${DOMAIN}${NC}"
-echo -e ""
-echo -e "${YELLOW}Useful commands:${NC}"
-echo -e "  - View logs: docker-compose logs -f"
-echo -e "  - Stop: docker-compose down"
-echo -e "  - Restart: docker-compose restart"
-echo -e "  - Check status: docker-compose ps"
-echo -e ""
-echo -e "${YELLOW}Nginx commands:${NC}"
-echo -e "  - Test config: nginx -t"
-echo -e "  - Restart: systemctl restart nginx"
-echo -e "  - Reload: systemctl reload nginx"
-echo -e ""
-echo -e "${YELLOW}SSL certificate renews automatically via cronjob${NC}"
+if curl -kfsS "https://${DOMAIN}/health" >/dev/null; then
+  echo -e "${GREEN}Nginx HTTPS healthcheck passed.${NC}"
+else
+  echo -e "${YELLOW}HTTPS healthcheck failed. Check DNS/ports (80, 443) and certbot output.${NC}"
+fi
+
+echo -e "${GREEN}----------------------------------------${NC}"
+echo -e "${GREEN}Deployment completed.${NC}"
+echo -e "${GREEN}App URL: https://${DOMAIN}${NC}"
+echo -e "${GREEN}----------------------------------------${NC}"
+echo "Useful commands:"
+echo "  docker compose ps"
+echo "  docker compose logs -f"
+echo "  docker compose restart"
+echo "  docker compose down"

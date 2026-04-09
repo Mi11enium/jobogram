@@ -6,7 +6,7 @@ services:
     container_name: jobogram
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - APP_URL=${APP_URL:-https://jobogram.ru}

@@ -1,48 +1,71 @@
-# 1. Подключитесь к вашему VPS
-ssh root@your-server-ip
+# Jobogram deploy (одна команда)
 
-# 2. Убедитесь, что DNS записи настроены правильно
-# Должны быть A записи для jobogram.ru и www.jobogram.ru, указывающие на IP вашего VPS
+Ниже инструкция для Ubuntu VPS и домена `jobogram.ru`.
 
-# 3. Клонируйте проект
+## 1) Подготовка DNS
+
+Убедитесь, что A-записи направляют на IP вашего VPS:
+
+- `jobogram.ru`
+- `www.jobogram.ru`
+
+## 2) Клонирование проекта
+
+```bash
+ssh root@YOUR_VPS_IP
 git clone https://github.com/your-username/jobogram.git
 cd jobogram
+```
 
-# 4. Создайте .env файл с вашим API ключом
-nano .env
-# Добавьте (замените на реальный ключ):
-# OPENROUTER_API_KEY=sk-or-v1-ваш_реальный_ключ
-# APP_URL=https://jobogram.ru
-# DEBUG=False
+## 3) Подготовка `.env`
 
-# 5. Установите Nginx и Certbot (ОБЯЗАТЕЛЬНЫЙ ШАГ!)
-sudo apt update
-sudo apt install -y nginx certbot python3-certbot-nginx
+Создайте или отредактируйте `.env`:
 
-# 6. Скопируйте конфиг Nginx
-sudo cp nginx.conf /etc/nginx/sites-available/jobogram
+```env
+OPENROUTER_API_KEY=sk-or-v1-your-real-key
+APP_URL=https://jobogram.ru
+DEBUG=False
+```
 
-# 7. Активируйте сайт
-sudo ln -s /etc/nginx/sites-available/jobogram /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default  # Удаляем дефолтный сайт
+Важно: файл должен быть в формате `KEY=value` без `export`.
 
-# 8. Проверьте конфигурацию Nginx
-sudo nginx -t
+## 4) Деплой одной командой
 
-# 9. Перезапустите Nginx
-sudo systemctl restart nginx
+```bash
+chmod +x setup.sh
+sudo DOMAIN=jobogram.ru EMAIL=admin@jobogram.ru ./setup.sh
+```
 
-# 10. Получите SSL сертификат для вашего домена
-sudo certbot --nginx -d jobogram.ru -d www.jobogram.ru
+Скрипт сам:
 
-# Когда certbot спросит, выберите опцию перенаправления HTTP на HTTPS (option 2)
+- установит Docker, Docker Compose plugin, Nginx, Certbot;
+- запустит приложение в Docker;
+- настроит Nginx reverse proxy;
+- выпустит SSL сертификаты Let's Encrypt;
+- включит HTTPS-редирект и выполнит health-check.
 
-# 11. Запустите Docker контейнер
-docker-compose up -d
+## 5) Проверка
 
-# 12. Проверьте, что все работает
-docker-compose ps
-docker-compose logs -f
-
-# 13. Проверьте, что сайт доступен
+```bash
 curl -I https://jobogram.ru/health
+docker compose ps
+docker compose logs -f
+```
+
+## Обновление после изменений
+
+```bash
+git pull
+sudo DOMAIN=jobogram.ru EMAIL=admin@jobogram.ru ./setup.sh
+```
+
+## Полезные команды
+
+```bash
+docker compose ps
+docker compose logs -f
+docker compose restart
+docker compose down
+sudo nginx -t
+sudo systemctl reload nginx
+```
