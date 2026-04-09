@@ -9,6 +9,7 @@ import random
 import time
 import io
 import os
+import json
 import logging
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -44,8 +45,8 @@ from config_generator import (
 
 # ====================== КОНФИГУРАЦИЯ STREAMLIT ======================
 st.set_page_config(
-    page_title="HH.ru Аналитический Дашборд",
-    page_icon="🚀",
+    page_title="Аналитический Дашборд Jobogram",
+    page_icon="logo.svg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -53,6 +54,12 @@ st.set_page_config(
 # CSS стили для темной темы
 st.markdown("""
 <style>
+    /* Скрываем служебные элементы Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    [data-testid="stDecoration"] {display: none !important;}
+    [data-testid="stAppDeployButton"] {display: none !important;}
+
     /* Основные цвета для темной темы */
     .stApp {
         background-color: #0e1117;
@@ -212,9 +219,86 @@ COMMON_STOPWORDS = [
     'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
 ]
 
+RATE_LIMIT_FILE = "ip_generation_limits.json"
+MAX_GENERATIONS_PER_DAY = 2
+
 # ====================== ФУНКЦИИ ======================
 def get_random_user_agent():
     return random.choice(USER_AGENTS)
+
+def get_client_ip():
+    """Пробует получить IP клиента из заголовков (через прокси/напрямую)."""
+    try:
+        headers = {}
+        if hasattr(st, "context") and hasattr(st.context, "headers"):
+            headers = dict(st.context.headers)
+
+        xff = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+
+        x_real_ip = headers.get("X-Real-IP") or headers.get("x-real-ip")
+        if x_real_ip:
+            return x_real_ip.strip()
+    except Exception:
+        pass
+    return None
+
+def _load_ip_rate_limits():
+    if not os.path.exists(RATE_LIMIT_FILE):
+        return {}
+    try:
+        with open(RATE_LIMIT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def _save_ip_rate_limits(data):
+    try:
+        with open(RATE_LIMIT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"Не удалось сохранить лимиты IP: {e}")
+
+def get_generation_usage_today(client_ip):
+    """Возвращает (использовано_сегодня, осталось_сегодня) для IP."""
+    if not client_ip:
+        return 0, MAX_GENERATIONS_PER_DAY
+
+    today = datetime.now().date().isoformat()
+    data = _load_ip_rate_limits()
+    record = data.get(client_ip)
+
+    # Обратная совместимость со старым форматом: {"ip": "YYYY-MM-DD"}
+    if isinstance(record, str):
+        used_today = 1 if record == today else 0
+    elif isinstance(record, dict):
+        if record.get("date") == today:
+            used_today = int(record.get("count", 0))
+        else:
+            used_today = 0
+    else:
+        used_today = 0
+
+    used_today = max(0, min(used_today, MAX_GENERATIONS_PER_DAY))
+    remaining = MAX_GENERATIONS_PER_DAY - used_today
+    return used_today, remaining
+
+def can_generate_config_today(client_ip):
+    """True, если для IP не исчерпан дневной лимит генераций."""
+    _, remaining = get_generation_usage_today(client_ip)
+    return remaining > 0
+
+def mark_config_generated_today(client_ip):
+    if not client_ip:
+        return
+    today = datetime.now().date().isoformat()
+    data = _load_ip_rate_limits()
+    used_today, _ = get_generation_usage_today(client_ip)
+    new_count = min(used_today + 1, MAX_GENERATIONS_PER_DAY)
+    data[client_ip] = {"date": today, "count": new_count}
+    _save_ip_rate_limits(data)
 
 def clean_keywords(keywords, job_titles):
     """Очистка ключевых слов от названий должностей"""
@@ -550,24 +634,53 @@ def main():
         """, unsafe_allow_html=True)
         
         st.markdown("## ⚙️ Настройки")
-        
-        st.markdown("### 📝 Должности для анализа")
-        jobs_input = st.text_area(
-            "Введите по одной на строке",
-            value="Python разработчик\nJava разработчик\nJavaScript разработчик",
-            height=150,
-            help="Введите названия должностей для анализа"
+        st.info(
+            "Как начать:\n"
+            "1) Введите одну должность.\n"
+            "2) Нажмите 'Сгенерировать конфиг'.\n"
+            "3) Нажмите 'Запустить анализ'.\n"
+            "4) Дождитесь завершения анализа.\n"
+            "5) Изучите вкладки и скачайте Excel."
         )
+        
+        st.markdown("### 📝 Должность для анализа")
+        jobs_input = st.text_area(
+            "Введите должность",
+            value="Python разработчик",
+            height=150,
+            help="За один запуск анализируется только одна должность"
+        )
+        client_ip = get_client_ip()
         
         if jobs_input.strip():
             first_job = jobs_input.strip().split('\n')[0].strip()
+            used_today, remaining_today = get_generation_usage_today(client_ip)
+            can_generate_now = can_generate_config_today(client_ip)
+            if client_ip:
+                if can_generate_now:
+                    st.caption(
+                        f"Генерация конфига для вашего IP: {used_today}/{MAX_GENERATIONS_PER_DAY} за сегодня "
+                        f"(осталось {remaining_today})."
+                    )
+                else:
+                    st.warning(
+                        f"Для вашего IP дневной лимит исчерпан: {MAX_GENERATIONS_PER_DAY}/{MAX_GENERATIONS_PER_DAY}. "
+                        "Попробуйте завтра."
+                    )
+            else:
+                st.caption("IP клиента не определен: ограничение 2 генерации в день не применяется.")
             
             if st.button(f"🎯 Сгенерировать конфиг для '{first_job}'", use_container_width=True):
-                with st.spinner("⏳ Senior IT-Рекрутер анализирует рынок..."):
+                if not can_generate_now:
+                    st.error("⛔ Лимит исчерпан: генерация конфига доступна 2 раза в день на IP.")
+                    st.stop()
+
+                with st.spinner("⏳ анализируем рынок..."):
                     try:
                         job_titles_list = [first_job]
                         new_config = generate_config_from_api(job_titles_list, api_key)
                         config.apply_api_response(new_config, first_job)
+                        mark_config_generated_today(client_ip)
                         st.session_state.config_generated = True
                         st.success(f"✅ Конфиг сгенерирован!")
                         st.rerun()
@@ -584,18 +697,12 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         
+        max_vacancies = 120
+        min_frequency = 5
+        
         st.markdown("---")
-        
-        st.markdown("### 📊 Объем выборки")
-        max_vacancies = st.slider(
-            "Количество вакансий",
-            min_value=100, max_value=3000, value=1000, step=100,
-            help="Больше вакансий = точнее анализ, но дольше ожидание"
-        )
-        
-        st.markdown("### 🎨 Фильтры")
-        min_frequency = st.slider("Мин. частота слов", 1, 20, 3,
-                                   help="Показывать только слова, встречающиеся минимум N раз")
+        start_btn = st.button("🚀 Запустить анализ", use_container_width=True, type="primary")
+        stop_btn = st.button("⏹ Остановить", use_container_width=True)
         
         with st.expander("🔍 Показать текущую конфигурацию"):
             st.json({
@@ -603,15 +710,19 @@ def main():
                                    for k, v in config.tech_categories.items()},
                 "ACTION_VERBS (sample)": list(config.action_verbs)[:5]
             })
-        
-        st.markdown("---")
-        start_btn = st.button("🚀 Запустить анализ", use_container_width=True, type="primary")
-        stop_btn = st.button("⏹ Остановить", use_container_width=True)
     
     # Основная область
-    st.markdown('<p class="main-header">🚀 HH.ru Аналитический Дашборд</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">Аналитический Дашборд Jobogram</p>', unsafe_allow_html=True)
     
     if not config.is_generated:
+        st.info(
+            "Быстрый старт:\n"
+            "1) Введите одну должность слева.\n"
+            "2) Нажмите 'Сгенерировать конфиг'.\n"
+            "3) Запустите анализ кнопкой 'Запустить анализ'.\n"
+            "4) После расчета откройте вкладки с результатами.\n"
+            "5) При необходимости экспортируйте отчет в Excel."
+        )
         st.info("💡 Нажмите 'Сгенерировать конфиг' для адаптации под вашу должность или используйте стандартные настройки.")
     
     # Прогресс и статус
@@ -1061,7 +1172,7 @@ def main():
                     st.download_button(
                         label="⬇️ Скачать Excel",
                         data=excel_file,
-                        file_name=f"hh_dashboard_{timestamp}.xlsx",
+                        file_name=f"jobogram_dashboard_{timestamp}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:

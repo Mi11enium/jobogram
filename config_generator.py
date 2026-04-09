@@ -201,12 +201,12 @@ def generate_config_from_api(job_titles: List[str], api_key: str = None, max_ret
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": os.getenv('APP_URL', 'http://localhost:8501'),
-        "X-Title": "HH Parser Config Generator"
+        "X-Title": "Jobogram Config Generator"
     }
     
-    system_prompt = "Ты — Senior IT-Рекрутер. Твоя задача: составить глубокий словарь ключевых слов для парсинга вакансий (рынок РФ - hh.ru)."
+    system_prompt = "Ты — Senior IT-Рекрутер. Твоя задача: составить глубокий словарь ключевых слов для парсинга вакансий российского рынка."
     
-    user_prompt = f"""Ты — Senior IT-Рекрутер. Твоя задача: составить глубокий словарь ключевых слов для парсинга вакансий (рынок РФ - hh.ru) по должностям:
+    user_prompt = f"""Ты — Senior IT-Рекрутер. Твоя задача: составить глубокий словарь ключевых слов для парсинга вакансий российского рынка по должностям:
 {job_titles_str}
 
 ВАЖНО: Учитывай, что в русскоязычных вакансиях часто используются русские термины!
