@@ -45,7 +45,7 @@ from config_generator import (
 
 # ====================== КОНФИГУРАЦИЯ STREAMLIT ======================
 st.set_page_config(
-    page_title="Аналитический Дашборд Jobogram",
+    page_title="Аналитический Дашборд (поиск ключевых слов по должности)",
     page_icon="logo.svg",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -629,7 +629,7 @@ def main():
         st.markdown("---")
         st.markdown(f"""
         <div style="text-align: center; padding: 10px; color: #666;">
-            <small>🏠 {os.getenv('APP_URL', 'https://jobogram.ru')}</small>
+            <small>🏠 {os.getenv('APP_URL', 'https://dashkeys.streamlit.app/')}</small>
         </div>
         """, unsafe_allow_html=True)
         

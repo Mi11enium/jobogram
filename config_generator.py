@@ -200,8 +200,8 @@ def generate_config_from_api(job_titles: List[str], api_key: str = None, max_ret
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": os.getenv('APP_URL', 'http://localhost:8501'),
-        "X-Title": "Jobogram Config Generator"
+        "HTTP-Referer": os.getenv('APP_URL', 'https://dashkeys.streamlit.app/'),
+        "X-Title": "Config Generator"
     }
     
     system_prompt = "Ты — Senior IT-Рекрутер. Твоя задача: составить глубокий словарь ключевых слов для парсинга вакансий российского рынка."
