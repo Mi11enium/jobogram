@@ -712,7 +712,7 @@ def main():
             })
     
     # Основная область
-    st.markdown('<p class="main-header">Аналитический Дашборд Jobogram</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">Аналитический Дашборд</p>', unsafe_allow_html=True)
     
     if not config.is_generated:
         st.info(
@@ -1172,7 +1172,7 @@ def main():
                     st.download_button(
                         label="⬇️ Скачать Excel",
                         data=excel_file,
-                        file_name=f"jobogram_dashboard_{timestamp}.xlsx",
+                        file_name=f"info_dashboard_{timestamp}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:
