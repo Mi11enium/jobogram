@@ -478,6 +478,16 @@ class AsyncHHParser:
     async def close_session(self):
         if self.session:
             await self.session.close()
+
+    async def read_error_preview(self, response, max_len=300):
+        """Возвращает короткий текст ошибки ответа API для логов."""
+        try:
+            body = await response.text()
+            if not body:
+                return "empty response body"
+            return body.replace("\n", " ").strip()[:max_len]
+        except Exception as e:
+            return f"failed to read response body: {e}"
     
     async def get_vacancy_ids(self, job_title, limit):
         ids = []
@@ -501,6 +511,17 @@ class AsyncHHParser:
                         if len(items) < per_page:
                             break
                         await asyncio.sleep(0.2)
+                    elif response.status == 429:
+                        error_preview = await self.read_error_preview(response)
+                        self.log(f"  ⚠ API rate limit (429) на стр. {page+1}: {error_preview}")
+                        await asyncio.sleep(1.2)
+                    else:
+                        error_preview = await self.read_error_preview(response)
+                        self.log(
+                            f"  ⚠ API ошибка при получении списка вакансий: "
+                            f"status={response.status}, page={page+1}, body={error_preview}"
+                        )
+                        break
             except Exception as e:
                 self.log(f"  ⚠ Ошибка: {e}")
                 break
@@ -518,10 +539,23 @@ class AsyncHHParser:
                     if response.status == 200:
                         return await response.json()
                     elif response.status == 429:
+                        if attempt == 0:
+                            error_preview = await self.read_error_preview(response)
+                            self.log(
+                                f"  ⚠ API rate limit (429) при чтении вакансии {vacancy_id}: "
+                                f"{error_preview}"
+                            )
                         await asyncio.sleep((attempt + 1) * 1)
                     else:
+                        error_preview = await self.read_error_preview(response)
+                        self.log(
+                            f"  ⚠ API ошибка при чтении вакансии {vacancy_id}: "
+                            f"status={response.status}, body={error_preview}"
+                        )
                         return None
-            except:
+            except Exception as e:
+                if attempt == 0:
+                    self.log(f"  ⚠ Сетевая ошибка при чтении вакансии {vacancy_id}: {e}")
                 if attempt == 2:
                     return None
                 await asyncio.sleep(0.3)
